@@ -1,0 +1,90 @@
+# CI: проверка каждого коммита и автоматическое слияние PR из ветки development.
+name: CI
+
+on:
+  push:
+    branches: ["**"]          # любая ветка: main, development, release/...
+  pull_request:
+    branches: [main]          # PR в main
+  workflow_dispatch:          # ручной запуск из вкладки Actions
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Форматирование (black)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - name: Установить зависимости
+        run: pip install -r requirements-dev.txt
+      - name: Проверить форматирование
+        run: black --check --diff .
+
+  test:
+    name: Тесты (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+      - name: Установить зависимости
+        run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Запустить тесты с покрытием
+        run: >-
+          pytest -v
+          --cov=users_api --cov-report=term-missing --cov-report=xml
+          --cov-fail-under=90
+          --junitxml=test-results.xml
+      - name: Сохранить отчёты
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results-py${{ matrix.python }}
+          path: |
+            test-results.xml
+            coverage.xml
+
+  automerge:
+    name: Автослияние PR из development
+    needs: [lint, test]
+    # Только для PR из ветки development и только после успешных lint и test
+    if: github.event_name == 'pull_request' && github.head_ref == 'development'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write        # слить PR в main
+      pull-requests: write   # изменить статус PR
+      actions: write         # запустить workflow документации
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+    steps:
+      - name: Слить PR в main
+        run: gh pr merge "$PR_NUMBER" --repo "$REPO" --merge
+      # Слияние, сделанное токеном GITHUB_TOKEN, не запускает другие workflow сам по себе
+      # (защита GitHub от бесконечных циклов), поэтому документацию запускаем явно.
+      - name: Обновить документацию
+        run: gh workflow run docs.yml --repo "$REPO" --ref main

@@ -1,0 +1,55 @@
+# Релиз: при публикации тега вида v1.2.3 прогоняются тесты, собирается документация
+# и на GitHub создаётся Release с архивом документации.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Тесты перед релизом
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: pytest -v
+
+  release:
+    name: Опубликовать релиз
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write   # создать Release
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Проверить, что версия в коде совпадает с тегом
+        run: |
+          pip install -r requirements.txt
+          CODE_VERSION="v$(python -c 'import users_api; print(users_api.__version__)')"
+          echo "Тег: $GITHUB_REF_NAME, версия в коде: $CODE_VERSION"
+          test "$CODE_VERSION" = "$GITHUB_REF_NAME"
+      - name: Собрать документацию
+        run: |
+          pip install pdoc==16.0.0
+          pdoc users_api --output-directory site
+          (cd site && zip -r ../users-api-docs-${GITHUB_REF_NAME}.zip .)
+      - name: Создать Release
+        run: >-
+          gh release create "$GITHUB_REF_NAME"
+          --title "Users API $GITHUB_REF_NAME"
+          --notes-file CHANGELOG.md
+          "users-api-docs-${GITHUB_REF_NAME}.zip"

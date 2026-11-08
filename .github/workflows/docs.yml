@@ -1,0 +1,51 @@
+# CD документации: при каждом обновлении main HTML-документация генерируется из кода
+# и публикуется на GitHub Pages.
+name: Docs
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write       # публикация на GitHub Pages
+  id-token: write    # подтверждение, что публикует именно этот workflow
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Сгенерировать документацию
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Установить зависимости
+        run: pip install -r requirements.txt pdoc==16.0.0
+      - name: Сгенерировать HTML из docstring'ов
+        run: >-
+          pdoc users_api
+          --output-directory site
+          --footer-text "Users API · коммит ${GITHUB_SHA::7} · $(date -u '+%Y-%m-%d %H:%M UTC')"
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    name: Опубликовать на GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
