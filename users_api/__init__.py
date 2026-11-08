@@ -22,4 +22,4 @@ uvicorn users_api.app:create_app --factory --reload
 Эта страница генерируется автоматически из docstring'ов кода при каждом обновлении ветки `main`.
 """
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
