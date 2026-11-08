@@ -6,6 +6,7 @@
     GET    /users/{user_id}  — получить пользователя (404 если нет)
     PATCH  /users/{user_id}  — изменить логин, имя и/или пароль (404, 409, 422)
     DELETE /users/{user_id}  — удалить пользователя (204, 404)
+    GET    /health           — проверка, что сервис работает, и его версия
 """
 
 from fastapi import FastAPI, HTTPException
@@ -35,6 +36,11 @@ def create_app(repository: InMemoryUserRepository | None = None) -> FastAPI:
         owner = repo.get_by_username(username)
         if owner is not None and owner.id != owner_id:
             raise HTTPException(status_code=409, detail=USERNAME_TAKEN)
+
+    @app.get("/health")
+    def health():
+        """Проверка работоспособности: используется мониторингом и при развёртывании."""
+        return {"status": "ok", "version": __version__}
 
     @app.post("/users", status_code=201, response_model=UserOut)
     def create_user(payload: UserCreate):
